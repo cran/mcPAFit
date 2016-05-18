@@ -8,12 +8,13 @@ A function to estimate node fitness from a single network snapshot assuming the 
 This function takes an input file name and then output the MCMC results into files.  
 }
 \usage{
-mcPAFit(file_name, burn_in = 1000, needed_sample = 1000, 
+mcPAFit(file_name, burn_in = 1000, 
+        needed_sample = 1000, 
         skip = 1, B = 1,
         step_s = 0.1, lambda = 1, G = 10000, s = 5,
         h_s_shape = 5, h_s_rate = 5,
         not_start_A = 1, file_A = "", not_start_f = 1,
-        file_f = "", filename = "network")
+        file_f = "", filename = "network", only_active_node = 1)
 }
 \arguments{
   \item{file_name}{
@@ -61,6 +62,7 @@ Integer. Indicates whether to use a custom starting position for f. 1 is not to 
 String. Name of the file containing the custom fitness in the case not_start_f == 0. Default is "".
 }
 \item{filename}{String. Main part of names of the output files. Default is "network".}
+\item{only_active_node}{Integer. If 1, then only nodes with degrees greater than 0 are considered. Default is 1.}
 }
 \value{
 The function writes directly to output files.
@@ -99,16 +101,19 @@ to.read = file("f_out_network.binary","rb")
 size_f <- N
 f = matrix(readBin(to.read, numeric(),n = size_f*M,size = 8),nrow = M,ncol = size_f,byrow = TRUE);
 f_mc   <- apply(f[start:M,],2,mean)
+#### Node id ###
+a <- read.table(file = "input.txt")
+count <- 1
+node_id  <- unique(as.vector(t(a)))
 #plot true fitness versus estimated fitness
 true        <- data$true$fitness
-node_id     <- unique(as.vector(data$random[,1:2]))
 names(true) <- 1:max(node_id)
 final_deg   <- table(data$random[,2])
 ok          <- names(which(final_deg >= 2))
 true        <- true[ok]
 names(f_mc) <- node_id
 f_mc        <- f_mc[as.character(ok)]
-c_mc        <- lm(true ~ f_mc + 0, weights = 1/true^2)$coefficients[1]
+c_mc        <- lm(true ~ f_mc + 0)$coefficients[1]
 f_temp      <- c_mc * f
 colnames(f_temp) <- node_id
 sd          <- apply(f_temp[start:M,ok],2,sd)

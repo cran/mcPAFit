@@ -11,7 +11,7 @@ If you use this package for your projects, please run the command: citation("mcP
 \tabular{ll}{
 Package: \tab mcPAFit\cr
 Type: \tab Package\cr
-Version: \tab 0.1.1\cr
+Version: \tab 0.1.2\cr
 Date: \tab 2016-05-14\cr
 License: \tab GPL-3 \cr
 }

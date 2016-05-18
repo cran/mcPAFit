@@ -1,12 +1,12 @@
-4f878f23a47ec64b86055e105a1cdadb *DESCRIPTION
+0fa07fea66e74548fdb45553ddf46877 *DESCRIPTION
 4fa0d8f98182b563223d2ad4d60d0441 *NAMESPACE
 d5d2e313748a53fe72b0a141a0c937a7 *R/RcppExports.R
 cdd72d5d5fc035616cb5e1fc541f6ad7 *R/create_sim_data.R
-83d57b17d727761ba46644b6b2e11ca8 *R/mcPAFit.R
+38e58f896b0adff57b6845645a88f6f1 *R/mcPAFit.R
 19423c29f41fa138aa0cfd61b31ee3f0 *man/create_sim_data.Rd
-c5fe1b1c31d578a8aefc5bd1ff98b7cd *man/mcPAFit-package.Rd
-68c49f435f318c70377a567be417d8c5 *man/mcPAFit.Rd
-372ece0920dbef6147d6140606761b35 *src/Cpp_code.cpp
+5ce2b2cf03ae61d008a95c0497e523ff *man/mcPAFit-package.Rd
+6732f46ac3595c7717ce16af47efdcd6 *man/mcPAFit.Rd
+ba329a8cdb9ce679919f78206e86f4d3 *src/Cpp_code.cpp
 5d2ae7e54ccd755afe2c0b5bae7bce84 *src/Makevars
 5d2ae7e54ccd755afe2c0b5bae7bce84 *src/Makevars.win
 7df9347d70ce1e74a5f79155c9aa8ce6 *src/RcppExports.cpp
