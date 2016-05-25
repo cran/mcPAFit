@@ -1,22 +1,22 @@
 \name{mcPAFit-package}
 \alias{mcPAFit-package}
 \docType{package} 
-\title{Estimating Node Fitness from a Single Network Snapshot by Markov Chain Monte Carlo}
+\title{Estimating Preferential Attachment from a Single Network Snapshot by Markov Chain Monte Carlo}
 \description{
-A Markov chain Monte Carlo method is provided to estimate fitness from a single network snapshot. Conventional methods require the complete information about the appearance order of all nodes and edges in the network. This package incorporates the appearance order into the state space and estimate it together with node fitness. For estimation of fitness, auxiliary variables are introduced to facilitate fast Gibbs sampling for fitness.
+A Markov chain Monte Carlo method is provided to estimate the preferential attachment function from a single network snapshot. Conventional methods require the complete information about the appearance order of all nodes and edges in the network. This package incorporates the appearance order into the state space and estimates it together with the preferential attachment function. Auxiliary variables are introduced to facilitate fast Gibbs sampling.
 
-If you use this package for your projects, please run the command: citation("mcPAFit") for a list of references you should cite.
 }
 \details{
 \tabular{ll}{
 Package: \tab mcPAFit\cr
 Type: \tab Package\cr
-Version: \tab 0.1.2\cr
-Date: \tab 2016-05-14\cr
+Version: \tab 0.1.3\cr
+Date: \tab 2016-05-25\cr
 License: \tab GPL-3 \cr
 }
 \itemize{
-\item mcPAFit: estimates the Preferential Attachment function and fitness function in a temporal complex network.
+\item mcPAFit: estimates the Preferential Attachment function in a temporal complex network without temporal information.
+\item create_sim_data: generate simulation data.
 }
 }
 \author{
@@ -30,14 +30,10 @@ Maintainer: Thong Pham \email{thongpham@thongpham.net}
 }
 
 \keyword{package}
-\keyword{fitness model}
 \keyword{Preferential Attachment function}
-\keyword{Minorize-Maximization algorithms}
-\keyword{Barabasi-Albert model}
-\keyword{MM algorithims}
-\keyword{Bianconi-Barabasi model}
-\keyword{fitness}
-\keyword{maximum likelihood function}
+\keyword{Markov chain Monte Carlo}
+\keyword{Gibbs sampling}
+\keyword{missing timeline}
 \examples{
 \dontrun{
 library("mcPAFit")

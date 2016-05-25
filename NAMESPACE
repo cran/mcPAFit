@@ -6,5 +6,6 @@ importFrom("RColorBrewer","brewer.pal")
 importFrom("graphics", "abline", "arrows", "lines", "points", "text")
 importFrom("stats", "lm", "rgamma", "rpois", "uniroot")
 importFrom("PAFit", "GenerateNet","GetStatistics","PAFit")
+importFrom("utils", "read.table", "write.table")
 
 

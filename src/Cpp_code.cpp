@@ -55,8 +55,9 @@ std::vector<double> * read_f(long N, std::string f_name);
 long max_deg(degree_array, long );
 PA_function init_PA_function(long, std::vector<double> &);
 double cal_pos(const PA_function &PA, const std::vector<double> *f, const degree_array &D,const  std::vector<double> & Z,
-               double lambda1, double lambda2, double s, double scale_f, long T, std::vector<long> &bin,
-               std::vector<double> & center_k, std::vector<int> &active, const long only_active_node);
+               double lambda1, double lambda2, double b, double scale_f, long T, std::vector<long> &bin,
+               std::vector<double> &center_k, std::vector<int> &active, const long only_active_node, timeline &order,
+               node_array &V);
 
 int swap(const PA_function &PA, const std::vector<double> *f, degree_array &D, const  std::vector<double> & Z,
          timeline &order, const node_array & V, long pos, const double u, double lambda2,std::vector<long > & bin);
@@ -68,19 +69,25 @@ int odd_swap(const PA_function &, const std::vector<double> *, degree_array &, c
              timeline &, const node_array &, double &,const double, const std::vector<double> &, long, double, std::vector<long> &bin);
 
 
-int update_f(PA_function &PA, std::vector<double> * &f, const degree_array &D, const std::vector <double> &Z,
-             const double &s,  std::default_random_engine &gen,
-             long T,std::vector<long> &bin,std::vector<double> &center_k, std::vector<int> &active, const long only_active_node);
+
+
+int update_A(PA_function &PA, std::vector<double> * &f, const degree_array &D, const std::vector <double> &Z,
+              const double &alpha, double b, std::default_random_engine &gen, 
+             std::vector<long> & bin, std::vector<double> &center_k, const timeline &order, const node_array &V, std::vector<double> &Z_cumsum);
 
 int update_Z(const PA_function &PA, const std::vector<double> * f, const degree_array &D, std::vector <double> &Z,
-             std::default_random_engine &gen, long T, std::vector<long> &bin, std::vector<int> &active, const long only_active_node) ;
+             std::default_random_engine &gen, long T, std::vector<long> &bin, std::vector<int> &active, 
+             const long only_active_node, const timeline &order, const node_array &V, std::vector<double> &Z_cumsum) ;
 
-int update_s(const std::vector<double> * , const PA_function &PA, std::vector<double> &center_k,
-             double &, double, double, double, double ,double, std::vector<int> &active, const long only_active_node);
+int update_b(const PA_function &PA, double &b, double alpha, std::vector<double> &center_k,double u, double normal, double h_b_shape, double h_b_rate);
+
 
 int para_gamma(double mean, double var, double &shape, double &rate);
 int random_scaling_f(std::vector<double> * &f, const double &s, double & scale_f, std::default_random_engine &gen, std::vector<int> &active,
                      const long only_active_node);
+int random_scaling_A(PA_function &PA, const double &alpha, double &scale_A, double b, 
+                     std::default_random_engine &gen, std::vector<double> &center_k);
+
 int print_deg(degree_array,long T) ;
 double log_gamma(double );
 double log_gamma(long );
@@ -116,7 +123,7 @@ int mcmc_running(std::vector< std::string > argv) {
   std::default_random_engine gen(3);
   std::uniform_real_distribution<double> uni(0.0,1.0);
   //std::uniform_int_distribution<int> uni_int(0,normal.order - 1);
-  std::normal_distribution<double> normal_s(0.0,string_to_d(argv[5]));      // proposal distribution for s
+  std::normal_distribution<double> normal_b(0.0,string_to_d(argv[5]));      // proposal distribution for b
 
 
   //for (long i = 0; i < E->size(); ++i)
@@ -141,13 +148,13 @@ int mcmc_running(std::vector< std::string > argv) {
   degree_array D = get_degree(E,V,normal_order);
 
   // auxilary variable Z
-  std::vector<double> Z(T + 1,2);
+  std::vector<double> Z(T,2);
 
   double lambda1 = string_to_d(argv[6]);
 
   double lambda2 = lambda1;
 
-  double s = string_to_d(argv[8]);
+  double b = string_to_d(argv[8]);
  
 
 
@@ -157,10 +164,10 @@ int mcmc_running(std::vector< std::string > argv) {
   long   skip    = string_to_l(argv[3]); //number of skip;
   double swap_accept_percentage = 0;
 
-  double h_s_shape = string_to_d(argv[9]);
-  double h_s_rate  = string_to_d(argv[10]);
+  double h_b_shape = string_to_d(argv[9]);
+  double h_b_rate  = string_to_d(argv[10]);
 
-  long   s_accept     = 0;
+  long   b_accept     = 0;
   long   B            = string_to_l(argv[4]); //number of combination of even and odd sweep inside an iteration
   // so the total iteration is burn_in + M*skip
   // log posterior
@@ -206,6 +213,14 @@ int mcmc_running(std::vector< std::string > argv) {
       f = new std::vector<double>(V.N,1);
     else f = read_f(V.N, argv[14]);
    
+    //printf("Deg max: %d\n",deg_max);
+    //printf("G: %d\n",G);
+    //for (unsigned long i = 0; i < bin.size(); ++i)
+   //     printf("%d ", bin.at(i));
+   // printf("\n");
+   // for (unsigned long i = 0; i < center_k.size();++i)
+   //     printf("%f ", center_k.at(i));
+    
     //print_deg(D,T);
 
     //std::cout<<"\n";
@@ -216,28 +231,54 @@ int mcmc_running(std::vector< std::string > argv) {
     
     long only_active_node = string_to_l(argv[16]);
 
-    std::ofstream f_out;
-    f_out.open("f_out_" + string_file +  ".binary",std::ios::out | std::ios::binary);
-
+    std::ofstream A_out; 
+    A_out.open("A_out_" + string_file + ".binary",std::ios::out | std::ios::binary);
+    
+    std::ofstream b_out;
+    b_out.open("b_out_" + string_file +  ".binary",std::ios::out | std::ios::binary);
+    
+    
     std::ofstream Z_out;
     Z_out.open("z_out_" + string_file +  ".binary", std::ios::out | std::ios::binary);
 
     std::ofstream order_out;
     order_out.open("order_out_" + string_file + ".binary",std::ios::out | std::ios::binary);
 
-    std::ofstream s_out;
-    s_out.open("s_out_" + string_file + ".binary",std::ios::out | std::ios::binary);
+  
 
     std::ofstream log_pos_out;
     log_pos_out.open("log_pos_" + string_file + ".binary",std::ios::out | std::ios::binary);
 
-    log_pos.push_back(cal_pos(A,f,D,Z,lambda1,lambda2,s, scale_f, T,bin,center_k,active,only_active_node));
+    log_pos.push_back(cal_pos(A,f,D,Z,lambda1,lambda2,b, scale_f, T,bin,center_k,active,only_active_node,normal_order,V));
     log_pos_out.write((char *) &log_pos.back(),sizeof(double));
-
-
+  
+    double alpha = 1;
+    double scale_A = 1.0;
+    std::vector<double> Z_cumsum(T,0);
+  
     for (long i = 1; i <= burn_in + M*skip; i++) {
-      //if (i % 1000 == 0)
-      //  printf("%d ",i);
+      if ((i > burn_in) && (i % skip == 0)) {
+        A_out.write((char *)&A.A->at(0),A.A->size()*sizeof(double));
+        //Z_out.write( (char *) &Z[0], Z.size()*sizeof(double));
+        for (long tt = 0; tt <= normal_order.T; ++tt) {
+          order_out.write( (char *) &normal_order.stamp.at(tt)->at(0), sizeof(struct edge));
+        }
+        b_out.write( (char *) &b, sizeof(double));
+        //std::cout << "finish write\n";
+      }
+      if (i % 1 == 0) {
+        //  Update A
+        update_A(A,f,D,Z,alpha,b,gen,bin,center_k,normal_order,V, Z_cumsum);
+        random_scaling_A(A,alpha,scale_A,b,gen, center_k);
+        // 
+        // 
+        update_Z(A,f,D,Z,gen,T,bin,active, only_active_node,normal_order,V, Z_cumsum);
+        
+        // update b: prior of A
+        double r_u      = uni(gen);
+        double r_normal = normal_b(gen);
+        b_accept        += update_b(A,b,alpha,center_k,r_u,r_normal,h_b_shape,h_b_rate);
+      }
 
       for (long j = 0; j < B; ++j) {
         std::vector<double> u_array_odd((long)ceil((T - 1.0)/2.0),0);
@@ -251,35 +292,11 @@ int mcmc_running(std::vector< std::string > argv) {
       }
 
       //std::cout<<i<<" ";
-      if (i % 1 == 0) {
-        //  Update f
-        update_f(A,f,D,Z,s,gen,T,bin,center_k, active,only_active_node);
-        // random scaling for f
-        random_scaling_f(f, s,scale_f, gen, active, only_active_node);
-        update_Z(A,f,D,Z,gen,T,bin,active, only_active_node);
-      }
-      double r_u, r_normal;
-      for (long kk = 0; kk < 1; ++ kk) {
 
-      // Update s: hyper parameter of f
-          r_u       = uni(gen);
-          r_normal  = normal_s(gen);
-          s_accept += update_s(f,A, center_k, s, scale_f, r_u,r_normal,h_s_shape,h_s_rate, active, only_active_node);
-      }
-
-
-      log_pos.push_back(cal_pos(A,f,D,Z,lambda1,lambda2,s, scale_f, T,bin,center_k,active, only_active_node));
+      log_pos.push_back(cal_pos(A,f,D,Z,lambda1,lambda2,b, scale_f, T,bin,center_k,active, only_active_node,normal_order,V));
       //fwrite(&log_pos.back(),1, sizeof(double),log_pos_out);
 
-      if ((i > burn_in) && (i % skip == 0)) {
-        f_out.write( (char *) &f->at(0), f->size()*sizeof(double));
-        //Z_out.write( (char *) &Z[0], Z.size()*sizeof(double));
-        for (long tt = 0; tt <= normal_order.T; ++tt) {
-          order_out.write( (char *) &normal_order.stamp.at(tt)->at(0), sizeof(struct edge));
-        }
-        s_out.write( (char *) &s, sizeof(double));
-        //std::cout << "finish write\n";
-      }
+
     }
     log_pos_out.write( (char *) &log_pos.at(0), log_pos.size()*sizeof(double));
 
@@ -291,10 +308,10 @@ int mcmc_running(std::vector< std::string > argv) {
     //std::cout<<"number of edges:"<< normal_order.T<< "\n";
     //std::cout<<"number of samples:" << M <<"\n";
     log_pos_out.close();
-    f_out.close();
+    A_out.close();
     Z_out.close();
     order_out.close();
-    s_out.close();
+    b_out.close();
 
     delete E;
     delete V.id_vec;
@@ -468,141 +485,95 @@ std::vector<double> * read_f(long N, std::string f_name) {
     return result;
 }
 
-//calculate log posterior
+// Calculate log posterior by processing the timeline
+// Assumption: one edge at a time
 double cal_pos(const PA_function &PA, const std::vector<double> *f, const degree_array &D,const  std::vector<double> & Z,
-               double lambda1, double lambda2, double s, double scale_f, long T, std::vector<long> &bin,
-               std::vector<double> &center_k, std::vector<int> &active, const long only_active_node){
+               double lambda1, double lambda2, double b, double scale_f, long T, std::vector<long> &bin,
+               std::vector<double> &center_k, std::vector<int> &active, const long only_active_node, timeline &order,
+               node_array &V){
   long N;  
-  if (0 == only_active_node)
-      N = f->size();   // number of nodes. remember the index start from 0;
-  else
-      N = active.size(); 
-  double result = 0;
-  #pragma omp parallel for \
-  default(shared)        \
-    reduction (+:result)
-    for (long t = 1; t <= T; ++t) {
-      double norm = 0;
+  N = f->size();   // number of nodes. remember the index start from 0;
+  double result   = 0;
+  double norm     = 0;
+  double norm_old = 0; 
+  std::vector<long>   deg_in_temp(N,-1);
+
+  for (long t = 0; t <= T; ++t) {
+      if (t > 0)
+          result += norm_old * Z[t - 1];
       long   m_t = 0; // total new edges at time t
-      long   n_t = 0; // total new nodes at time t
-      if (0 == only_active_node) {
-      for (long i = 0; i < N; ++i)
-          if (f->at(i) > 0) {  
-              if (D.degree.at(t)->at(i) != -1){
-              long m = D.degree.at(t+1)->at(i) - D.degree.at(t)->at(i);
-              long temp = D.degree.at(t)->at(i);
-              //long temp2 = bin.at(temp);
-              result += m * (log(PA.A->at(bin[temp])) + log(f->at(i)));
-              result += -log_prime(m);
-              m_t    += m;
-              norm   += PA.A->at(bin[temp]) * f->at(i);
-              }
-            else if (D.degree.at(t+1)->at(i) != - 1) {
-               ++n_t;
-               long m = D.degree.at(t+1)->at(i);
-               result += m * (log(PA.A->at(0)) + log(f->at(i)));
-              result += -log_prime(m);
-              m_t    += m;
-              norm   += PA.A->at(0) * f->at(i);
-            }
-          }
-        //prior of m_t and n_t
-        result += m_t * log(lambda1) - log_prime(m_t) - lambda1;
-        result += n_t * log(lambda2) - log_prime(n_t) - lambda2;
-        result += -log_prime(m_t) - log_gamma(m_t) - norm * Z[t];
-        if ((m_t > 0) && (Z[t] >= 0))
-          result += (m_t - 1) * log(Z[t]);
-    }
-    else {
-      for (long i = 0; i < N; ++i)
-        if (f->at(active.at(i)) > 0) {  
-          if (D.degree.at(t)->at(active.at(i)) != -1){
-            long m = D.degree.at(t+1)->at(active.at(i)) - D.degree.at(t)->at(active.at(i));
-            long temp = D.degree.at(t)->at(active.at(i));
-            //long temp2 = bin.at(temp);
-            result += m * (log(PA.A->at(bin[temp])) + log(f->at(active.at(i))));
-            result += -log_prime(m);
-            m_t    += m;
-            norm   += PA.A->at(bin[temp]) * f->at(active.at(i));
-          }
-          else if (D.degree.at(t+1)->at(active.at(i)) != - 1) {
-            ++n_t;
-            long m = D.degree.at(t+1)->at(active.at(i));
-            result += m * (log(PA.A->at(0)) + log(f->at(active.at(i))));
-            result += -log_prime(m);
-            m_t    += m;
-            norm   += PA.A->at(0) * f->at(active.at(i));
-          }
-        }
-        //prior of m_t and n_t
-        result += m_t * log(lambda1) - log_prime(m_t) - lambda1;
-        result += n_t * log(lambda2) - log_prime(n_t) - lambda2;
-        result += -log_prime(m_t) - log_gamma(m_t) - norm * Z[t];
-        if ((m_t > 0) && (Z[t] >= 0))
-          result += (m_t - 1) * log(Z[t]);
-    }  
-    }
-    
-    //log probability of m_0, n_0
-    long m_0 = 0;
-    long n_0 = 0;
-    #pragma omp parallel for \
-     default(shared)        \
-     reduction (+:m_0,n_0)  
-     for (long i = 0; i < f->size(); ++i)
-     if (D.degree.at(1)->at(i) != -1) {
-         ++n_0;
-           m_0 += D.degree.at(1)->at(i);
+      //long   n_t = 0; // total new nodes at time t
+      for (unsigned long m = 0; m < order.stamp.at(t)->size(); ++ m){
+          ++m_t;  
+          long id_from = V.id_vec->at(order.stamp.at(t)->at(m).from_id);
+          long id_to   = V.id_vec->at(order.stamp.at(t)->at(m).to_id); 
+         if (deg_in_temp.at(id_from) == -1) {
+             deg_in_temp.at(id_from) = 0;
+             norm += PA.A->at(bin[0]) * f->at(id_from);
+             
+         }
+      if (deg_in_temp.at(id_to) == -1) {
+          deg_in_temp.at(id_to) = 1; 
+          norm     += PA.A->at(bin[1]) * f->at(id_to);
+          norm_old += PA.A->at(bin[0]) * f->at(id_to);
+          if (t > 1) 
+              result += log(PA.A->at(bin[0])) + log(f->at(id_to));  
+      }
+      else {
+          if (t > 1) 
+              result += log(PA.A->at(bin[deg_in_temp.at(id_to)])) + log(f->at(id_to));  
+          norm   -= PA.A->at(bin[deg_in_temp.at(id_to)]) * f->at(id_to);  
+          deg_in_temp.at(id_to)++;
+          norm   += PA.A->at(bin[deg_in_temp.at(id_to)]) * f->at(id_to);  
      }
+     }
+     if (t > 0)
+         result += - norm_old * Z[t - 1];
     
-
-    result += m_0 * log(lambda1) - log_prime(m_0) - lambda1;
-    result += n_0 * log(lambda2) - log_prime(n_0) - lambda2;
-    // log probability of G_0
-    // 1. nodes are distinguiable, edges are indistinguiable
-    // 2. allows dupplications of nodes
-    // so the probability is (1/n_0)^m_0
-    result -= m_0*log((double)n_0);
-
-    //prior of f: gamma prior
-    if (0 == only_active_node) {
-     #pragma omp parallel for \
-      default(shared)      \
-      reduction (+:result)
-      for (long i = 0; i < N; ++ i){
-          double shape = s;
-          double rate  = s;
-          result += shape * log(rate) - log_gamma(shape) + (shape - 1) * log(f->at(i))- rate * f->at(i);
+      if (t < T) {
+          result += - norm * Z[t];
+          result += (m_t - 1) * log(Z[t]);
+         
       }
-    }
-    else {
-      #pragma omp parallel for \
-      default(shared)      \
-      reduction (+:result)
-      for (long i = 0; i < N; ++ i){
-        double shape = s;
-        double rate  = s;
-        result += shape * log(rate) - log_gamma(shape) + (shape - 1) * log(f->at(active.at(i)))- rate * f->at(active.at(i));
-      }
-    }
-      //prior of b and s
-      //result += 2 * log(s);
+      norm_old = norm;
+  }
+  //prior of A: gamma prior
+  
+  for (unsigned long k = 0; k < PA.A->size(); ++k) {
+      double shape = b;
+      double rate  = 1;
+      //double mean  = pow(center_k[k],alpha);
+      //double var   = 1/b*pow(center_k[k],2*alpha);
+    //if (mean == 0)
+    //    mean = 1;
+    // if (var == 0)
+    //   var = 1;
+    
+    //para_gamma(mean,var,shape,rate);
+    
+    result += shape*log(rate) - log_gamma(shape) + (shape - 1)*log(PA.A->at(k)) - rate * PA.A->at(k);
+  }
       return result;
 }
 
-//perform one adjacency switch by processing the timeline
+// perform one adjacency switch by processing the timeline
+// Assumption: one edge at a time
+
+// Important note about implementation:
+// timeline: useable index from 0 to T
+// degree_array: useable index from 1 to T + 1
+// degree_array(T+1) will be the final degree
+// to calculate degree array: loop on timeline from 0 to T, at each time t fill in the degree vector at t + 1
+// to calculate posterior: loop on degree_array from 1 to T, at each time t compare degree t + 1 and t
+// Z: index from 1 to T (length T+1)
+// T should be maximum M - 1 (M: number of edges)
+// the swap will go from index 0 to T
+
 int swap(const PA_function &PA, const std::vector<double> *f, degree_array &D, const  std::vector<double> & Z,
          timeline &order, const node_array & V, long pos, const double u, double lambda2, std::vector<long> & bin) {
   double  delta_log   = 0;   // difference of log posterior between after and before the swap
   long    N = f->size();
-  long    n_1_b4      = 0; // number of new nodes at time t before the swap
-  long    n_2_b4      = 0; // number of new nodes at time t + 1 before the swap
-  long    n_1_after   = 0; // number of new nodes at time t after the swap
-  long    n_2_after   = 0; // number of new nodes at time t + 1 after the swap
-  long    m_t_1_b4    = 0; // total edges before swap between time t and t + 1
-  long    m_t_1_after = 0; // total edges after swap between time t+1 and t+2
-  long    m_t_2_b4    = 0; // total edges before swap between time t+1 and t+2
-  long    m_t_2_after = 0; // total edges after swap between time t+1 and t+2
+ 
   //std::cout<<"go in swap ";
   std::vector<long> * deg_in_temp;
   if (pos != 0)
@@ -610,123 +581,104 @@ int swap(const PA_function &PA, const std::vector<double> *f, degree_array &D, c
   else
     deg_in_temp = new std::vector<long> (N,-1);
 
-  std::vector<int>  is_appeared_pos1(N,0);
-  std::vector<int>  is_appeared_pos(N,0);
-  std::vector<int>  subtract_pos1(N,0);
-  std::vector<int>  subtract_pos(N,0);
+  std::vector<int>  mark(N,0);
 
   for (unsigned long m = 0; m < order.stamp.at(pos + 1)->size(); ++ m) {
     long id_from = V.id_vec->at(order.stamp.at(pos + 1)->at(m).from_id);
     long id_to   = V.id_vec->at(order.stamp.at(pos + 1)->at(m).to_id);
 
     if (D.degree.at(pos + 1)->at(id_to) != - 1) {
-      delta_log -=  (log(f->at(id_to)) + log(PA.A->at(bin[D.degree.at(pos + 1)->at(id_to)])));
+        delta_log -=  (log(f->at(id_to)) + log(PA.A->at(bin[D.degree.at(pos + 1)->at(id_to)])));
       // delta_log +=  Z.at(pos + 1)*f->at(id_to)*PA.A->at(bin[D.degree.at(pos + 1)->at(id_to)]);
-
+    }
+    else {
+        delta_log -=  (log(f->at(id_to)) + log(PA.A->at(bin[0])));      
     }
     if ((pos != 0) && (D.degree.at(pos)->at(id_to) != -1)){
-      delta_log +=  log(f->at(id_to))+ log(PA.A->at(bin[D.degree.at(pos)->at(id_to)]));
+      delta_log +=  log(f->at(id_to)) + log(PA.A->at(bin[D.degree.at(pos)->at(id_to)]));
       //delta_log -=  (Z.at(pos)*f->at(id_to)*PA.A->at(bin[D.degree.at(pos)->at(id_to)]));
-
     }
-
+    else if (pos != 0) {
+      delta_log +=  log(f->at(id_to))+ log(PA.A->at(bin[0]));  
+    }
     if (deg_in_temp->at(id_to) != - 1)
       deg_in_temp->at(id_to)++;
     else deg_in_temp->at(id_to) = 1;
     if (deg_in_temp->at(id_from) == - 1)
       deg_in_temp->at(id_from) = 0;
-    m_t_1_after++; m_t_2_b4++;
 
-    if (is_appeared_pos1.at(id_to) == 0) {
-      if (pos != 0) {
-        if (D.degree.at(pos)->at(id_to) == - 1)
-          n_1_after++;
-      }
-      else n_1_after++;
-      if (D.degree.at(pos + 1)->at(id_to) != - 1) {
-        delta_log += Z.at(pos+1)*f->at(id_to)*PA.A->at(bin[D.degree.at(pos + 1)->at(id_to)]);
-        if ((pos != 0) && (D.degree.at(pos)->at(id_to) != -1))
-          delta_log -= Z.at(pos+1)*f->at(id_to)*PA.A->at(bin[D.degree.at(pos)->at(id_to)]);
-      }
-      if (D.degree.at(pos + 1)->at(id_to) == - 1)
-        n_2_b4++;
-      is_appeared_pos1.at(id_to) = 1;
+    if (D.degree.at(pos + 1)->at(id_to) == - 1) {
+        delta_log += Z.at(pos + 1) * f->at(id_to) * PA.A->at(bin[0]);
+    } else {
+       delta_log += Z.at(pos + 1) * f->at(id_to) * PA.A->at(bin[0]);  
     }
-    if (is_appeared_pos1.at(id_from) == 0) {
-      if (pos != 0) {
-        if (D.degree.at(pos)->at(id_from) == - 1)
-          n_1_after++;
-      } else n_1_after++;
-      if (D.degree.at(pos + 1)->at(id_from) == - 1)
-        n_2_b4++;
-      is_appeared_pos1.at(id_from) = 1;
+    
+    if (D.degree.at(pos + 1)->at(id_from) == - 1) {
+      delta_log += Z.at(pos + 1) * f->at(id_from) * PA.A->at(bin[0]);
+      
     }
-
+    if ((pos != 0) && (D.degree.at(pos)->at(id_to) == -1))
+        delta_log -= Z.at(pos) * f->at(id_to) * PA.A->at(bin[0]);
+    
+    if ((pos != 0) && (D.degree.at(pos)->at(id_from) == -1))
+        delta_log -= Z.at(pos) * f->at(id_from) * PA.A->at(bin[0]);
   }
+  
   for (unsigned long m = 0; m < order.stamp.at(pos)->size(); ++ m) {
     long id_from = V.id_vec->at(order.stamp.at(pos)->at(m).from_id);
     long id_to   = V.id_vec->at(order.stamp.at(pos)->at(m).to_id);
     if (deg_in_temp->at(id_to) != - 1) {
-      delta_log += log(f->at(id_to)) + log(PA.A->at(bin[deg_in_temp->at(id_to)]));
-
+        delta_log += log(f->at(id_to)) + log(PA.A->at(bin[deg_in_temp->at(id_to)]));
+    }
+    else {
+        delta_log += log(f->at(id_to)) + log(PA.A->at(bin[0]));          
     }
     if ((pos != 0)&&(D.degree.at(pos)->at(id_to) != -1)){
-      delta_log -= (log(f->at(id_to)) + log(PA.A->at(bin[D.degree.at(pos)->at(id_to)])));
-
+        delta_log -= (log(f->at(id_to)) + log(PA.A->at(bin[D.degree.at(pos)->at(id_to)])));
     }
-
-    m_t_1_b4++;
-    m_t_2_after++;
-    if (is_appeared_pos.at(id_to) == 0) {
-      if (pos != 0) {
-        if (D.degree.at(pos)->at(id_to) == - 1)
-          n_1_b4++;
-      } else n_1_b4++;
-      if (deg_in_temp->at(id_to) == - 1)
-        n_2_after++;
-      if (deg_in_temp->at(id_to) != - 1) {
-        delta_log -= Z.at(pos+1)*f->at(id_to)*PA.A->at(bin[deg_in_temp->at(id_to)]);
-        if ((pos != 0) && (is_appeared_pos1.at(id_to) == 1)) {
-          delta_log -= Z.at(pos+1)*f->at(id_to)*PA.A->at(bin[D.degree.at(pos + 1)->at(id_to)]);
-
-          if (D.degree.at(pos)->at(id_to) != - 1) {
-            delta_log += Z.at(pos+1)*f->at(id_to)*PA.A->at(bin[D.degree.at(pos)->at(id_to)]);
-          }
-        }
-        if ((is_appeared_pos1.at(id_to) == 0) && (D.degree.at(pos + 1)->at(id_to) != - 1))
-          delta_log += Z.at(pos+1)*f->at(id_to)*PA.A->at(bin[D.degree.at(pos + 1)->at(id_to)]);
+    else if (pos != 0)
+        delta_log -= (log(f->at(id_to)) + log(PA.A->at(bin[0])));
+    
+    if (deg_in_temp->at(id_to) == - 1) {
+        delta_log -= Z.at(pos + 1)*f->at(id_to)*PA.A->at(bin[0]);
+    }
+    if (deg_in_temp->at(id_from) == -1) 
+        delta_log -= Z.at(pos + 1)*f->at(id_from)*PA.A->at(bin[0]);
+    
+    if ((pos != 0) && (D.degree.at(pos)->at(id_to) == - 1))
+        delta_log += Z.at(pos)*f->at(id_to)*PA.A->at(bin[0]);
+    
+    if ((pos != 0) && (D.degree.at(pos)->at(id_from) == - 1))
+        delta_log += Z.at(pos)*f->at(id_from)*PA.A->at(bin[0]);
+  }
+  
+  for (unsigned long m = 0; m < order.stamp.at(pos + 1)->size(); ++ m) {
+      long id_to   = V.id_vec->at(order.stamp.at(pos + 1)->at(m).to_id);
+    
+      if ((D.degree.at(pos + 1)->at(id_to) != - 1) && (deg_in_temp->at(id_to) != - 1) && 
+          (D.degree.at(pos + 1)->at(id_to) != deg_in_temp->at(id_to)) && (mark.at(id_to) == 0)) {
+          mark.at(id_to) = 1;  
+          delta_log += Z.at(pos + 1) * f->at(id_to) * PA.A->at(bin[D.degree.at(pos + 1)->at(id_to)]);
+          delta_log -= Z.at(pos + 1) * f->at(id_to) * PA.A->at(bin[deg_in_temp->at(id_to)]);
+   
       }
-      is_appeared_pos.at(id_to) = 1;
-    }
-    if (is_appeared_pos.at(id_from) == 0) {
-      if (pos != 0) {
-        if (D.degree.at(pos)->at(id_from) == - 1)
-          n_1_b4++;
-      } else n_1_b4++;
-      if (deg_in_temp->at(id_from) == - 1)
-        n_2_b4++;
-      is_appeared_pos.at(id_from) = 1;
+  }
+  
+  for (unsigned long m = 0; m < order.stamp.at(pos)->size(); ++ m) {
+      long id_to   = V.id_vec->at(order.stamp.at(pos)->at(m).to_id);
+      if ((D.degree.at(pos + 1)->at(id_to) != - 1) && (deg_in_temp->at(id_to) != - 1) && 
+         (D.degree.at(pos + 1)->at(id_to) != deg_in_temp->at(id_to)) && (mark.at(id_to) == 0)) {
+          mark.at(id_to) = 1;  
+         delta_log -= Z.at(pos + 1) * f->at(id_to) * PA.A->at(bin[deg_in_temp->at(id_to)]);
+         delta_log += Z.at(pos + 1) * f->at(id_to) * PA.A->at(bin[D.degree.at(pos + 1)->at(id_to)]);
     }
   }
-
-  // can convert this part to be timeline-based
-
-  //for (unsigned long i = 0; i < N; ++i) {
-  //    if (D.degree.at(pos + 1)->at(i) != - 1)
-  //        delta_log += Z.at(pos+1)*f->at(i)*PA.A->at(bin[D.degree.at(pos + 1)->at(i)]);
-  //    if (deg_in_temp->at(i) != - 1)
-  //        delta_log -= Z.at(pos+1)*f->at(i)*PA.A->at(bin[deg_in_temp->at(i)]);
-  //}
-
+  
   //further calculation of the difference of log posterior
-  delta_log += log(Z.at(pos + 1))*(m_t_2_after - m_t_2_b4);
+  delta_log += log(Z.at(pos + 1));
   if (pos != 0)
-    delta_log += log(Z.at(pos))*(m_t_1_after - m_t_1_b4);
-  delta_log += log_poisson(n_1_after,lambda2) + log_poisson(n_2_after,lambda2) -
-    log_poisson(n_1_b4,lambda2) - log_poisson(n_2_b4,lambda2);
-  // if this is the initial time
-  if (pos == 0)
-    delta_log -= m_t_1_after * log( (double) n_1_after) + m_t_1_b4 * log( (double) n_1_b4); //the probability of the initial graph
+    delta_log += log(Z.at(pos));
+ 
   // MH step
   if (delta_log >= log(u)) { //accept
     delete D.degree.at(pos + 1);
@@ -796,210 +748,182 @@ int even_swap(const PA_function &PA, const std::vector<double> * f, degree_array
   return 0;
 }
 
-//Gibbs update for f
-int update_f(PA_function &PA, std::vector<double> * &f, const degree_array &D, const std::vector <double> &Z,
-             const double &s, std::default_random_engine &gen, long T,
-             std::vector<long> & bin, std::vector<double> &center_k, std::vector<int> &active, const long only_active_node){
 
-  long N;
-  if (0 == only_active_node)
-      N = f->size(); // number of nodes. remember the index start from 0;
-  else
-      N = active.size();
+// Update PA by processing the timeline
+// Assumption: only 1 edge at a time
+int update_A(PA_function &PA, std::vector<double> * &f, const degree_array &D, const std::vector <double> &Z,
+             const double &alpha, double b, std::default_random_engine &gen, 
+             std::vector<long> & bin, std::vector<double> &center_k, const timeline &order, const node_array &V, 
+             std::vector<double> &Z_cumsum){
   
-  std::uniform_int_distribution<int> uni(0,N - 1);
-  if (0 == only_active_node) {
-  for (int i = 0; i < N; ++ i){
-    double shape_f_single = s;
-    double rate_f_single  = s;
-    #pragma omp parallel for \
-    default(shared)      \
-      reduction (+:shape_f_single,rate_f_single)
-      for (long t = 1; t <= T; ++t) {
-        if (D.degree.at(t)->at(i) != -1){
-          long num_new_edge = D.degree.at(t+1)->at(i) - D.degree.at(t)->at(i);
-          shape_f_single += num_new_edge;
-          rate_f_single  += PA.A->at(bin[D.degree.at(t)->at(i)]) * Z.at(t);
-        }
-        else if (D.degree.at(t + 1)->at(i) != -1) {
-            long num_new_edge = D.degree.at(t+1)->at(i);
-            shape_f_single += num_new_edge;
-            rate_f_single  += PA.A->at(0) * Z.at(t);
-        }
+  long N = f->size(); // number of nodes. remember the index start from 0;
+  long T = order.T;
+  std::vector<double> shape_A(PA.A->size(),0);
+  std::vector<double> rate_A(PA.A->size(),0);
+  std::vector<long>   deg_in_temp(N,-1);
+  //std::vector<long>   change_time(N,-1);
+  
+  // process time 0 
+  for (unsigned long m = 0; m < order.stamp.at(0)->size(); ++ m){
+      long id_from = V.id_vec->at(order.stamp.at(0)->at(m).from_id);
+      long id_to   = V.id_vec->at(order.stamp.at(0)->at(m).to_id); 
+      if (deg_in_temp.at(id_from) == -1) {
+          deg_in_temp.at(id_from) = 0;  
+          rate_A.at(bin[deg_in_temp.at(id_from)]) += f->at(id_from) * Z_cumsum.at(T - 1);
+          //change_time.at(id_from) = 0; 
       }
-      std::gamma_distribution<double> gamma_dist(shape_f_single,1/rate_f_single);
-      f->at(i) = gamma_dist(gen);
+      if (deg_in_temp.at(id_to) == -1) {
+          deg_in_temp.at(id_to) = 1; 
+          rate_A.at(bin[deg_in_temp.at(id_to)]) += f->at(id_to) * Z_cumsum.at(T - 1);
+          //change_time.at(id_to) = 0; 
+      }
+      else {
+          rate_A.at(bin[deg_in_temp.at(id_to)]) -= f->at(id_to) * Z_cumsum.at(T - 1);  
+          deg_in_temp.at(id_to)++;
+          rate_A.at(bin[deg_in_temp.at(id_to)]) += f->at(id_to) * Z_cumsum.at(T - 1);  
+          //change_time.at(id_to) = 0; 
+      }
   }
-  } else {
-    for (int i = 0; i < N; ++ i){
-      double shape_f_single = s;
-      double rate_f_single  = s;
-      #pragma omp parallel for   \
-      default(shared)      \
-        reduction (+:shape_f_single,rate_f_single)
-        for (long t = 1; t <= T; ++t) {
-          if (D.degree.at(t)->at(active.at(i)) != -1){
-            long num_new_edge = D.degree.at(t+1)->at(active.at(i)) - D.degree.at(t)->at(active.at(i));
-            shape_f_single += num_new_edge;
-            rate_f_single  += PA.A->at(bin[D.degree.at(t)->at(active.at(i))]) * Z.at(t);
+  for (long t = 1; t <= T; ++t) 
+      for (unsigned long m = 0; m < order.stamp.at(t)->size(); ++ m){
+      long id_from = V.id_vec->at(order.stamp.at(t)->at(m).from_id);
+      long id_to   = V.id_vec->at(order.stamp.at(t)->at(m).to_id); 
+      if (deg_in_temp.at(id_from) == -1) {
+          deg_in_temp.at(id_from) = 0; 
+          if (t < T) {
+              rate_A.at(bin[deg_in_temp.at(id_from)]) += f->at(id_from) * 
+                     (Z_cumsum.at(T-1) - Z_cumsum.at(t-1)); // for the current time and all times after, T - t times
+              //change_time.at(id_from) = t; 
           }
-          else if (D.degree.at(t + 1)->at(active.at(i)) != -1) {
-            long num_new_edge = D.degree.at(t+1)->at(active.at(i));
-            shape_f_single += num_new_edge;
-            rate_f_single  += PA.A->at(0) * Z.at(t);
+      }
+      if (deg_in_temp.at(id_to) == -1) {
+          deg_in_temp.at(id_to) = 0; 
+          shape_A.at(bin[deg_in_temp.at(id_to)])++;
+          if (t < T) {
+                  rate_A.at(bin[deg_in_temp.at(id_to)]) += f->at(id_to) * Z.at(t-1);
           }
+          deg_in_temp.at(id_to)++;
+          if (t < T) {
+              rate_A.at(bin[deg_in_temp.at(id_to)]) += f->at(id_to) * (Z_cumsum.at(T-1) - Z_cumsum.at(t-1)); // for the current time and all times after, T - t times
+              //change_time.at(id_to) = t; 
+          }
+      }
+      else {
+          if (t < T) {
+              rate_A.at(bin[deg_in_temp.at(id_to)]) -= f->at(id_to) * 
+              (Z_cumsum.at(T - 1) - Z_cumsum.at(t-1));
+          }
+          shape_A.at(bin[deg_in_temp.at(id_to)])++;
+          deg_in_temp.at(id_to)++;
+          if (t < T) {
+              rate_A.at(bin[deg_in_temp.at(id_to)]) += f->at(id_to) * 
+                (Z_cumsum.at(T-1) - Z_cumsum.at(t-1));
+              //change_time.at(id_to) = t; 
+          }
+      }
+  }
+  //Gibbs update for A, starting from A_0
+  for (unsigned  long k = 0; k < PA.A->size(); ++k) {
+     double shape = b;
+     double rate  = 1;
+    //       double mean  = pow(center_k[k],alpha);
+   //       if (mean == 0)
+   //           mean = 1;
+   //
+   //       double var   = 1/b*pow(center_k[k],2*alpha);
+   //       if (var == 0)
+  //           var = 1;
+  //       para_gamma(mean,var,shape,rate);
+    shape_A.at(k) += shape;
+    rate_A.at(k)  += rate;
+    //if (shape_A.at(k) == 0)
+    //    shape_A.at(k) = 1;
+    std::gamma_distribution<double> gamma_dist(shape_A.at(k),1/rate_A.at(k));
+    PA.A->at(k) = gamma_dist(gen);
+}
+    return 0;
+}
+
+//sample the auxilary variable Z by processing the timeline
+// Assumption: only 1 edge at a time
+int update_Z(const PA_function &PA, const std::vector<double> * f, const degree_array &D, std::vector <double> &Z,
+             std::default_random_engine &gen, long T, std::vector<long> &bin, std::vector<int> &active, 
+             const long only_active_node, const timeline &order, const node_array &V, std::vector<double> &Z_cumsum) {
+  long N;
+  N = f->size();     // number of nodes. remember the index start from 0;
+  
+  std::vector<double> shape(T,0);
+  std::vector<double> rate(T,0);
+  double norm   = 0;
+  std::vector<long>   deg_in_temp(N,-1);
+  Z_cumsum.at(0) = 0.0;
+  for (long t = 0; t < T; ++t) {
+    long   m_t = 0; // total new edges at time t
+    //long   n_t = 0; // total new nodes at time t
+    for (unsigned long m = 0; m < order.stamp.at(t)->size(); ++ m){
+        if (t > 0)  
+            ++m_t;  
+        long id_from = V.id_vec->at(order.stamp.at(t)->at(m).from_id);
+        long id_to   = V.id_vec->at(order.stamp.at(t)->at(m).to_id); 
+        if (deg_in_temp.at(id_from) == -1) {
+            deg_in_temp.at(id_from) = 0;
+            norm += PA.A->at(bin[0]) * f->at(id_from);
         }
-        std::gamma_distribution<double> gamma_dist(shape_f_single,1/rate_f_single);
-        f->at(active.at(i)) = gamma_dist(gen);
-    }  
+        if (deg_in_temp.at(id_to) == -1) {
+            deg_in_temp.at(id_to) = 1; 
+            norm += PA.A->at(bin[1]) * f->at(id_to);
+            if (t > 0)
+                rate.at(t - 1) += PA.A->at(bin[0]) * f->at(id_to);
+        }
+        else {
+            norm   -= PA.A->at(bin[ deg_in_temp.at(id_to)]) * f->at(id_to);  
+            deg_in_temp.at(id_to)++;
+            norm += PA.A->at(bin[deg_in_temp.at(id_to)]) * f->at(id_to);  
+        }
+    }
+    if (t > 0)
+        shape.at(t - 1) = m_t;
+    rate.at(t)  = norm;
+    if ((t > 0) && (shape.at(t - 1) > 0) && (rate.at(t - 1) > 0)){
+        //std::cout<<shape[t]<<" "<<rate[t]<<" ";
+        std::gamma_distribution<double> gamma_dist(shape.at(t - 1),1/rate.at(t - 1));
+        Z.at(t - 1)         = gamma_dist(gen);
+        Z_cumsum.at(t - 1) += Z.at(t-1);
+        Z_cumsum.at(t)      = Z_cumsum.at(t-1);
+        //std::cout<<Z[t]<< " \n";
+    }
+    else if ((t > 0)  && shape.at(t - 1) == 0) {
+      Z.at(t - 1) = 0;
+      Z_cumsum.at(t - 1) += Z.at(t - 1);
+      Z_cumsum.at(t)      = Z_cumsum.at(t - 1);
+    }
   }
+  long m_t = 0;
+  for (unsigned long m = 0; m < order.stamp.at(T)->size(); ++ m)
+      ++m_t;  
+  shape.at(T - 1) = m_t;  
+  std::gamma_distribution<double> gamma_dist(shape.at(T - 1),1/rate.at(T - 1));
+  Z.at(T - 1) = gamma_dist(gen);
+  Z_cumsum.at(T - 1) += Z.at(T - 1);
   return 0;
 }
 
-// Random rescaling for f
-int random_scaling_f(std::vector<double> * &f, const double &s,double & scale_f, std::default_random_engine &gen, 
-                     std::vector<int> &active, const long only_active_node) {
-  long       N;
-  if (0 == only_active_node)
-      N = f->size();
-  else 
-      N = active.size();
-  
-  double shape = s*N;
+
+// Random scaling for A
+int random_scaling_A(PA_function &PA, const double &alpha, double &scale_A, double b, 
+                     std::default_random_engine &gen, std::vector<double> &center_k) {
+  long   K = PA.A->size();
+  double shape = 0;
   double rate  = 1;
   double sum   = 0;
-  if (0 == only_active_node) {
-  
-  for (long i = 0; i < N; ++i)
-    sum += f->at(i);
+  for (long i = 0; i < K; ++i) {
+      shape += b;
+      sum   += PA.A->at(i);
+  }
   std::gamma_distribution<double> gamma_dist(shape,1/rate);
-  scale_f = gamma_dist(gen);
-  for (long i = 0; i < N; ++i)
-    f->at(i) = scale_f * f->at(i)/sum;
-  }
-  else {
-    for (long i = 0; i < N; ++i)
-      sum += f->at(active.at(i));
-    std::gamma_distribution<double> gamma_dist(shape,1/rate);
-    scale_f = gamma_dist(gen);
-    for (long i = 0; i < N; ++i)
-      f->at(active.at(i)) = scale_f * f->at(active.at(i))/sum;  
-  }
-  return 0;
-}
-
-//sample the auxilary variable Z
-int update_Z(const PA_function &PA, const std::vector<double> * f, const degree_array &D, std::vector <double> &Z,
-             std::default_random_engine &gen, long T, std::vector<long> &bin, std::vector<int> &active, const long only_active_node) {
-  long N;
-  if (0 == only_active_node)
-      N = f->size();     // number of nodes. remember the index start from 0;
-  else 
-      N = active.size();
-  
-  std::vector<double> shape(T + 1,0);
-  std::vector<double> rate(T + 1,0);
-   #pragma omp parallel for
-  for (long t = 1; t <= T; ++t) {
-    double norm = 0;
-    long   m_t  = 0;           // total edges at the time t
-    if (0 == only_active_node) {
-    for (long i = 0; i < N; ++i) {
-      if (D.degree.at(t)->at(i) != -1){
-        m_t   += D.degree.at(t+1)->at(i) - D.degree.at(t)->at(i);
-        norm  += PA.A->at(bin[D.degree.at(t)->at(i)])*f->at(i);
-      }
-
-      else if (D.degree.at(t + 1)->at(i) != -1) {
-        m_t  += D.degree.at(t+1)->at(i);
-        norm += PA.A->at(0)*f->at(i);
-      }
-    }
-    }
-    else {
-      for (long i = 0; i < N; ++i) {
-        if (D.degree.at(t)->at(active.at(i)) != -1){
-          m_t   += D.degree.at(t+1)->at(active.at(i)) - D.degree.at(t)->at(active.at(i));
-          norm  += PA.A->at(bin[D.degree.at(t)->at(active.at(i))])*f->at(active.at(i));
-        }
-        
-        else if (D.degree.at(t + 1)->at(active.at(i)) != -1) {
-          m_t  += D.degree.at(t+1)->at(active.at(i));
-          norm += PA.A->at(0)*f->at(active.at(i));
-        }
-      }  
-    }
-    shape.at(t) = m_t;
-    rate.at(t)  = norm;
-  }
-  for (long t = 1; t <= T; ++t)
-    if ((shape.at(t) > 0) && (rate.at(t) > 0)){
-      //std::cout<<shape[t]<<" "<<rate[t]<<" ";
-      std::gamma_distribution<double> gamma_dist(shape.at(t),1/rate.at(t));
-      Z.at(t) = gamma_dist(gen);
-      //std::cout<<Z[t]<< " \n";
-    }
-    else if (shape.at(t) == 0) {
-      Z.at(t) = 0;
-    }
-    return 0;
-}
-
-
-int update_s(const std::vector<double> * f, const PA_function &PA, std::vector<double> &center_k,
-             double &s, double scale_f, double u, double normal, double h_s_shape, double h_s_rate,
-              std::vector<int> &active, const long only_active_node){
-  //do nothing
-  double candidate = exp(log(s) + normal);
-  double delta_log = 0;
-
-  //prior of f
-  if (1 == only_active_node) {
-    #pragma omp parallel for   \
-    default(shared)      \
-    reduction (+:delta_log)
-    for (unsigned long i = 0; i <= active.size() - 1; ++ i) {
-        double shape   = s;
-        double rate    = s;
-        double shape_n = candidate;
-        double rate_n  = candidate;
-
-        delta_log += shape_n*log(rate_n)- log_gamma(shape_n) -
-                     shape * log(rate) + log_gamma(shape) +
-                    (shape_n - shape)*log(f->at(active.at(i))) -
-                    (rate_n - rate)* f->at(active.at(i));
-
-  }
-  }
-  else {
-      #pragma omp parallel for   \
-       default(shared)      \
-       reduction (+:delta_log)  
-       for (unsigned long i = 0; i <= f->size() - 1; ++ i) {
-           double shape   = s;
-           double rate    = s;
-           double shape_n = candidate;
-           double rate_n  = candidate;
-      
-      delta_log += shape_n*log(rate_n)- log_gamma(shape_n) -
-        shape * log(rate) + log_gamma(shape) +
-        (shape_n - shape)*log(f->at(i)) -
-        (rate_n - rate)* f->at(i);  
-  }
-  }
-  //prior of s
-  //delta_log += log_gamma_density(candidate,h_s_shape,h_s_rate) - log_gamma_density(s,h_s_shape,h_s_rate);
-  //delta_log += 2 * (log(candidate) - log(s));
-  if (log(u) <= delta_log) {
-    //accept
-    s = candidate;
-    return 1;
-  }
-  else {
-
-    return 0;
-  }
-
+  scale_A = gamma_dist(gen);
+  for (long i = 0; i < K; ++i)
+    PA.A->at(i) = scale_A * PA.A->at(i)/sum;
   return 0;
 }
 
@@ -1067,18 +991,43 @@ int binning(long deg_max, long & G, std::vector<long> & bin, std::vector<double>
   return 0;
 }
 
-// int print_deg(degree_array D, long T) {
-//   printf("Degree-------\n");
-//   for (long i = 0; i < T; ++i) {
-//     for (unsigned long j = 0; j < D.degree.at(0)->size(); ++ j)
-//       printf("%d ",D.degree.at(i)->at(j));
-//     printf("     ");
-//     for (unsigned long j = 0; j < D.degree.at(0)->size(); ++ j)
-//       printf("%d ",D.out_deg.at(i)->at(j));
-//     printf("\n");
-//   }
-//   return 0;
-// }
+
+int update_b(const PA_function &PA, double &b, double alpha, std::vector<double> &center_k,double u, double normal, double h_b_shape, double h_b_rate){
+  //do nothing
+  double candidate = exp(log(b) + normal);
+  double delta_log = 0;
+  for (unsigned long i = 0; i < PA.A->size() ; ++ i) {
+    // double shape   = b*pow(center_k[i],alpha);
+    // double rate    = 1;
+    // double shape_n = candidate * pow(center_k[i],alpha);
+    // double rate_n  = 1;
+    double shape   = b;
+    double rate    = 1;
+    double shape_n = candidate;
+    double rate_n  = 1;
+    if (shape == 0)
+      shape = b;
+    if (shape_n == 0)
+      shape_n = candidate;
+    delta_log += shape_n*log(rate_n)- log_gamma(shape_n) -
+      shape * log(rate) + log_gamma(shape) +
+      (shape_n - shape)*log(PA.A->at(i)) -
+      (rate_n - rate)* PA.A->at(i);
+  }
+  // prior of b: uninformative
+  //delta_log += log_gamma_density(candidate,h_b_shape,h_b_rate) - log_gamma_density(b,h_b_shape,h_b_rate);
+  //delta_log += -log(candidate) + log(b);
+  if (log(u) <= delta_log) {
+    //accept
+    b = candidate;
+    return 1;
+  }
+  else {
+    return 0;
+  }
+  
+  return 0;
+}
 
 double log_gamma(double x) {
   if (x > 0)
@@ -1199,5 +1148,3 @@ long string_to_l(std::string a){
   iss >> u;
   return(u);
 }
-
-
