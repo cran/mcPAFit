@@ -3,19 +3,18 @@
 \docType{package} 
 \title{Estimating Preferential Attachment from a Single Network Snapshot by Markov Chain Monte Carlo}
 \description{
-A Markov chain Monte Carlo method is provided to estimate the preferential attachment function from a single network snapshot. Conventional methods require the complete information about the appearance order of all nodes and edges in the network. This package incorporates the appearance order into the state space and estimates it together with the preferential attachment function. Auxiliary variables are introduced to facilitate fast Gibbs sampling.
+A Markov chain Monte Carlo method is provided to estimate the preferential attachment function from a single network snapshot. Conventional methods require the complete information about the appearance order of all nodes and edges in the network. This package incorporates the appearance order into the state space and estimates it together with the preferential attachment function.
 
 }
 \details{
 \tabular{ll}{
 Package: \tab mcPAFit\cr
 Type: \tab Package\cr
-Version: \tab 0.1.3\cr
-Date: \tab 2016-05-25\cr
+Version: \tab 0.1.4\cr
+Date: \tab 2017-07-01\cr
 License: \tab GPL-3 \cr
 }
 \itemize{
-\item mcPAFit: estimates the Preferential Attachment function in a temporal complex network without temporal information.
 \item create_sim_data: generate simulation data.
 }
 }
